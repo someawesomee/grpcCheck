@@ -1,0 +1,5 @@
+Order ID: 123
+Items:
+- big+mac x2: $12.00
+- big_special x1: $23.00
+Total: $47.00
