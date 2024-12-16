@@ -16,9 +16,3 @@ def send_message(order_id, items):
     channel.basic_publish(exchange='', routing_key='check_queue', body=json.dumps(message))
     print("Message sent to 'check_queue'.")
 
-if __name__ == "__main__":
-    items = [
-        {"name": "Item1", "price": 10.0, "quantity": 2},
-        {"name": "Item2", "price": 20.0, "quantity": 1},
-    ]
-    send_message(order_id=123, items=items)

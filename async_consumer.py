@@ -1,38 +1,55 @@
 import json
 import pika
-import service_pb2
-from server import CheckService
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
 
-def process_message(ch, method, properties, body):
-    # Декодирование сообщения
-    message = json.loads(body)
-    request = service_pb2.CreateCheckRequest(
-        order_id=message['order_id'],
-        items=[
-            service_pb2.Item(
-                name=item['name'],
-                price=item['price'],
-                quantity=item['quantity']
+# Модели данных для REST API
+class Item(BaseModel):
+    name: str
+    price: float
+    quantity: int
+
+class CreateCheckRequest(BaseModel):
+    order_id: int
+    items: List[Item]
+
+# Инициализируем FastAPI
+app = FastAPI()
+
+# Функция для отправки сообщения в RabbitMQ
+def send_to_rabbitmq(queue_name: str, message: dict):
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+        channel = connection.channel()
+
+        # Объявляем очередь (если ее еще нет)
+        channel.queue_declare(queue=queue_name)
+
+        # Отправляем сообщение
+        channel.basic_publish(
+            exchange='',
+            routing_key=queue_name,
+            body=json.dumps(message),
+            properties=pika.BasicProperties(
+                delivery_mode=2  # Делает сообщение персистентным
             )
-            for item in message['items']
-        ]
-    )
+        )
 
-    # Формирование чека
-    service = CheckService()
-    response = service.CreateCheck(request, None)
-    print(f"Check created: {response.file_path}")
+        connection.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"RabbitMQ error: {str(e)}")
 
-def consume_queue():
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-    channel = connection.channel()
+# REST API эндпоинт
+@app.post("/create-check/")
+async def create_check(request: CreateCheckRequest):
+    # Преобразуем запрос в JSON
+    message = {
+        "order_id": request.order_id,
+        "items": [item.dict() for item in request.items]
+    }
 
-    # Объявление очереди
-    channel.queue_declare(queue='check_queue')
+    # Отправляем сообщение в RabbitMQ
+    send_to_rabbitmq(queue_name="check_queue", message=message)
 
-    print("Waiting for messages in 'check_queue'...")
-    channel.basic_consume(queue='check_queue', on_message_callback=process_message, auto_ack=True)
-    channel.start_consuming()
-
-if __name__ == "__main__":
-    consume_queue()
+    return {"message": "Request sent to RabbitMQ"}
